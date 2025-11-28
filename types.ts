@@ -6,6 +6,7 @@ export interface Student {
   studentId: string; // The secondary ID shown below name
   className: string; // Tên lớp (Mầm, Chồi, Lá...)
   assignedTeacherIds?: number[]; 
+  homeroomTeacherId?: number; // ID của giáo viên chủ nhiệm (nếu có)
 }
 
 export interface Teacher {

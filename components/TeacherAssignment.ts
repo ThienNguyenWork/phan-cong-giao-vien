@@ -149,8 +149,10 @@ import { Student, Teacher } from '../types';
                        [ngClass]="{'cursor-pointer hover:opacity-80': getAssignedTeachers(student).length > 0}">
                     <ng-container *ngIf="getAssignedTeachers(student).length > 0; else noTeacher">
                        <span *ngFor="let t of getAssignedTeachers(student)" 
-                          class="inline-flex items-center justify-center px-2 py-0.5 rounded text-xs font-medium bg-blue-100 text-blue-800 border border-blue-200 truncate whitespace-nowrap">
-                        {{ t.shortName }}
+                          class="inline-flex items-center justify-center px-2 py-0.5 rounded text-xs font-medium truncate whitespace-nowrap"
+                          [ngClass]="student.homeroomTeacherId === t.id ? 'bg-red-100 text-red-800 border border-red-200' : 'bg-blue-100 text-blue-800 border border-blue-200'">
+                        <span>{{ t.shortName }}</span>
+                        <span *ngIf="student.homeroomTeacherId === t.id" class="ml-1 text-[10px] font-bold bg-red-600 text-white px-1 rounded">CN</span>
                       </span>
                     </ng-container>
                     <ng-template #noTeacher>
@@ -229,6 +231,14 @@ import { Student, Teacher } from '../types';
            <div class="flex items-center justify-between text-xs text-gray-600 mb-1">
              <span>Chọn: <b>{{ selectedTeacherIds.size }}</b> GV</span>
              <span>Áp dụng: <b>{{ selectedStudentIds.size }}</b> HS</span>
+           </div>
+
+           <div class="flex items-center gap-3 text-sm">
+             <label class="flex items-center gap-2 text-gray-700">
+               <input type="checkbox" class="w-4 h-4" #homeroomCheckbox [checked]="assignAsHomeroom" (change)="onHomeroomToggle($any($event.target).checked, homeroomCheckbox)">
+               <span>Đặt làm Giáo viên chủ nhiệm</span>
+             </label>
+             <div class="text-xs text-gray-500">Nếu bật, giáo viên đầu tiên sẽ được đặt làm GVCN cho HS đã chọn.</div>
            </div>
 
            <button (click)="applyAssignment()" 
@@ -334,6 +344,9 @@ export class TeacherAssignmentComponent {
   
   // New state for unassigned filter
   showUnassignedOnly: boolean = false;
+
+  // If true, applied teacher(s) will set homeroom for selected students
+  assignAsHomeroom: boolean = false;
 
   // Modal State
   viewingStudentDetails: Student | null = null;
@@ -467,19 +480,62 @@ export class TeacherAssignmentComponent {
     if (this.selectedStudentIds.size === 0 || this.selectedTeacherIds.size === 0) return;
 
     const teachersToAdd = Array.from(this.selectedTeacherIds);
+    // If assigning as homeroom, ensure only one teacher is selected
+    if (this.assignAsHomeroom && teachersToAdd.length > 1) {
+      this.showNotification('Chỉ có thể chọn 1 giáo viên làm chủ nhiệm. Vui lòng chọn 1 giáo viên.', 'warning');
+      // Uncheck the homeroom toggle immediately
+      this.assignAsHomeroom = false;
+      return;
+    }
     let countSuccess = 0;
+    let hasError = false;
 
     this.students.forEach(student => {
       if (this.selectedStudentIds.has(student.id)) {
         if (!student.assignedTeacherIds) student.assignedTeacherIds = [];
         
         let added = false;
-        teachersToAdd.forEach(newId => {
+        for (const newId of teachersToAdd) {
+          // If not assigning as homeroom and the teacher is already the student's homeroom, warn and skip
+          if (!this.assignAsHomeroom && student.homeroomTeacherId && newId === student.homeroomTeacherId) {
+            const teacher = this.teachers.find(t => t.id === newId);
+            if (teacher) {
+              this.showNotification(`Giáo viên ${teacher.shortName} đã được phân làm giáo viên chủ nhiệm cho học sinh ${student.fullName}.`, 'warning');
+            }
+            continue;
+          }
+
           if (!student.assignedTeacherIds!.includes(newId)) {
             student.assignedTeacherIds!.push(newId);
             added = true;
           }
-        });
+        }
+
+        // If assigning as homeroom, set homeroomTeacherId to the first selected teacher
+        if (this.assignAsHomeroom && teachersToAdd.length > 0) {
+          const homeroomTeacherId = teachersToAdd[0];
+          const homeroomTeacher = this.teachers.find(t => t.id === homeroomTeacherId);
+          
+          // Check if this teacher is already homeroom of another class
+          const existingClass = this.getHomeroomClassForTeacher(homeroomTeacherId);
+          if (existingClass && existingClass !== student.className) {
+            const teacherName = homeroomTeacher?.shortName || 'Giáo viên';
+            this.showNotification(`${teacherName} đã là giáo viên chủ nhiệm của lớp ${existingClass}. Một giáo viên chỉ có thể chủ nhiệm 1 lớp.`, 'error');
+            hasError = true;
+            // Reset homeroom toggle when error occurs
+            this.assignAsHomeroom = false;
+            return; // Stop assignment for this student
+          }
+          
+          // pick first selected teacher as homeroom
+          student.homeroomTeacherId = homeroomTeacherId;
+          // ensure homeroom teacher is included in assignedTeacherIds
+          if (!student.assignedTeacherIds.includes(homeroomTeacherId)) {
+            student.assignedTeacherIds.push(homeroomTeacherId);
+            added = true;
+          }
+        }
+
         if (added) countSuccess++;
       }
     });
@@ -487,8 +543,13 @@ export class TeacherAssignmentComponent {
     this.applyStudentFilters(); // Refresh UI
     this.selectedTeacherIds.clear(); // Reset Teacher checkboxes
     this.selectedStudentIds.clear(); // Reset Student checkboxes
-    
-    this.showNotification(`Đã phân công thành công cho ${countSuccess} học sinh!`, 'success');
+    // Reset the homeroom assignment toggle after applying
+    this.assignAsHomeroom = false;
+
+    // Only show success message if there was no error and assignments were made
+    if (!hasError && countSuccess > 0) {
+      this.showNotification(`Đã phân công thành công cho ${countSuccess} học sinh!`, 'success');
+    }
   }
 
   removeAssignment() {
@@ -503,6 +564,10 @@ export class TeacherAssignmentComponent {
           student.assignedTeacherIds = student.assignedTeacherIds.filter(
             existingId => !teachersToRemove.includes(existingId)
           );
+          // If homeroom teacher removed, clear homeroomTeacherId
+          if (student.homeroomTeacherId && teachersToRemove.includes(student.homeroomTeacherId)) {
+            student.homeroomTeacherId = undefined;
+          }
           if (student.assignedTeacherIds.length !== originalLength) {
              changeCount++;
           }
@@ -525,6 +590,27 @@ export class TeacherAssignmentComponent {
   getAssignedTeachers(student: Student): Teacher[] {
     if (!student.assignedTeacherIds) return [];
     return this.teachers.filter(t => student.assignedTeacherIds!.includes(t.id));
+  }
+
+  // Check if a teacher is already homeroom of another class
+  getHomeroomClassForTeacher(teacherId: number): string | null {
+    const student = this.students.find(s => s.homeroomTeacherId === teacherId);
+    return student ? student.className : null;
+  }
+
+  // Toggle handler for homeroom checkbox — validate selection
+  onHomeroomToggle(checked: boolean, checkboxElement?: any) {
+    if (checked && this.selectedTeacherIds.size > 1) {
+      this.showNotification('Chỉ có thể chọn 1 giáo viên làm chủ nhiệm. Vui lòng chọn 1 giáo viên.', 'warning');
+      this.assignAsHomeroom = false;
+      // Force uncheck the checkbox immediately
+      if (checkboxElement) {
+        checkboxElement.checked = false;
+      }
+      return;
+    }
+
+    this.assignAsHomeroom = checked;
   }
 
   // --- Details Modal Logic ---
