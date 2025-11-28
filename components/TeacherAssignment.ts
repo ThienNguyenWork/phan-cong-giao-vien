@@ -1,5 +1,5 @@
 
-import { Component, ElementRef, Inject } from '@angular/core';
+import { Component, ElementRef, Inject, ViewChild } from '@angular/core';
 import { CommonModule } from '@angular/common';
 import { MOCK_STUDENTS, MOCK_TEACHERS } from '../constants';
 import { Student, Teacher } from '../types';
@@ -70,22 +70,40 @@ import { Student, Teacher } from '../types';
           </div>
           
           <div class="flex gap-3">
-             <!-- Class Filter -->
+             <!-- Block Filter (Khối) -->
              <div class="relative w-40">
                 <select 
-                  (change)="onClassFilterChange($event)"
-                  [disabled]="showUnassignedOnly"
-                  class="w-full pl-2 pr-8 py-1.5 border border-gray-300 rounded text-sm focus:ring-1 focus:ring-blue-500 outline-none appearance-none bg-white disabled:bg-gray-100 disabled:text-gray-400">
-                  <option value="">Tất cả lớp</option>
+                  #blockSelect
+                  (change)="onBlockFilterChange($event)"
+                  [value]="blockFilter"
+                  class="w-full pl-2 pr-8 py-1.5 border border-gray-300 rounded text-sm focus:ring-1 focus:ring-blue-500 outline-none appearance-none bg-white">
+                  <option value="">Tất cả khối</option>
                   <optgroup label="Mẫu Giáo">
                     <option value="Mầm">Khối Mầm</option>
                     <option value="Chồi">Khối Chồi</option>
                     <option value="Lá">Khối Lá</option>
                   </optgroup>
                   <optgroup label="Nhà Trẻ">
-                    <option value="6-18">6-18 tháng</option>
-                    <option value="19-24">19-24 tháng</option>
-                    <option value="25-36">25-36 tháng</option>
+                    <option value="6-18">Khối 6-18 tháng</option>
+                    <option value="19-24">Khối 19-24 tháng</option>
+                    <option value="25-36">Khối 25-36 tháng</option>
+                  </optgroup>
+                </select>
+                <div class="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400">
+                  <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m6 9 6 6 6-6"/></svg>
+                </div>
+             </div>
+
+             <!-- Class Filter (Lớp cụ thể) -->
+             <div class="relative w-40">
+                <select 
+                  #classSelect
+                  (change)="onClassFilterChange($event)"
+                  [value]="classFilter"
+                  class="w-full pl-2 pr-8 py-1.5 border border-gray-300 rounded text-sm focus:ring-1 focus:ring-blue-500 outline-none appearance-none bg-white">
+                  <option value="">Tất cả lớp</option>
+                  <optgroup *ngFor="let group of getGroupedClasses(); trackBy: trackByGroupLabel" [label]="group.label">
+                    <option *ngFor="let cls of group.classes; trackBy: trackByClass" [value]="cls">{{ cls }}</option>
                   </optgroup>
                 </select>
                 <div class="absolute right-2 top-1/2 -translate-y-1/2 pointer-events-none text-gray-400">
@@ -238,7 +256,7 @@ import { Student, Teacher } from '../types';
                <input type="checkbox" class="w-4 h-4" #homeroomCheckbox [checked]="assignAsHomeroom" (change)="onHomeroomToggle($any($event.target).checked, homeroomCheckbox)">
                <span>Đặt làm Giáo viên chủ nhiệm</span>
              </label>
-             <div class="text-xs text-gray-500">Nếu bật, giáo viên đầu tiên sẽ được đặt làm GVCN cho HS đã chọn.</div>
+             <div class="text-xs text-red-600 font-medium">Nếu bật thì giáo viên sẽ được phân công làm chủ nhiệm của lớp đang chọn</div>
            </div>
 
            <button (click)="applyAssignment()" 
@@ -339,7 +357,8 @@ export class TeacherAssignmentComponent {
 
   // Filter States
   studentSearchTerm: string = '';
-  classFilter: string = '';
+  blockFilter: string = ''; // Khối: 'Mầm' | 'Chồi' | 'Lá' | '6-18' | '19-24' | '25-36' | ''
+  classFilter: string = ''; // Lớp cụ thể: 'Mầm 1', 'Mầm 2', 'Chồi 1', ...
   teacherSearchTerm: string = '';
   
   // New state for unassigned filter
@@ -347,6 +366,10 @@ export class TeacherAssignmentComponent {
 
   // If true, applied teacher(s) will set homeroom for selected students
   assignAsHomeroom: boolean = false;
+
+  // Template references
+  @ViewChild('blockSelect') blockSelect: ElementRef<HTMLSelectElement> | undefined;
+  @ViewChild('classSelect') classSelect: ElementRef<HTMLSelectElement> | undefined;
 
   // Modal State
   viewingStudentDetails: Student | null = null;
@@ -388,9 +411,81 @@ export class TeacherAssignmentComponent {
     this.applyStudentFilters();
   }
 
+  onBlockFilterChange(event: any) {
+    this.blockFilter = event.target.value;
+    this.classFilter = ''; // Reset class filter when block changes
+    this.applyStudentFilters();
+  }
+
   onClassFilterChange(event: any) {
     this.classFilter = event.target.value;
+    
+    // Auto-update blockFilter based on selected class
+    if (this.classFilter) {
+      if (this.classFilter.includes('Mầm')) {
+        this.blockFilter = 'Mầm';
+      } else if (this.classFilter.includes('Chồi')) {
+        this.blockFilter = 'Chồi';
+      } else if (this.classFilter.includes('Lá')) {
+        this.blockFilter = 'Lá';
+      } else if (this.classFilter.includes('6-18')) {
+        this.blockFilter = '6-18';
+      } else if (this.classFilter.includes('19-24')) {
+        this.blockFilter = '19-24';
+      } else if (this.classFilter.includes('25-36')) {
+        this.blockFilter = '25-36';
+      }
+      
+      // Force update blockSelect to show the new value
+      if (this.blockSelect) {
+        this.blockSelect.nativeElement.value = this.blockFilter;
+      }
+    }
+    
     this.applyStudentFilters();
+  }
+
+  // Get available classes based on current block filter
+  getAvailableClasses(): string[] {
+    const allClasses = [...new Set(this.students.map(s => s.className))].sort();
+    if (!this.blockFilter) return allClasses;
+    
+    // Filter by block prefix (e.g., 'Mầm' includes 'Mầm 1', 'Mầm 2')
+    return allClasses.filter(c => c.startsWith(this.blockFilter));
+  }
+
+  // Get grouped classes for template
+  getGroupedClasses(): { label: string; classes: string[] }[] {
+    const allClasses = [...new Set(this.students.map(s => s.className))].sort();
+    
+    // If blockFilter is set, only show classes in that block
+    let filteredClasses = allClasses;
+    if (this.blockFilter) {
+      filteredClasses = allClasses.filter(c => c.startsWith(this.blockFilter));
+    }
+    
+    const mauGiao = filteredClasses.filter(c => c.includes('Mầm') || c.includes('Chồi') || c.includes('Lá'));
+    const nhaTre = filteredClasses.filter(c => c.includes('6-18') || c.includes('19-24') || c.includes('25-36'));
+    
+    const groups: { label: string; classes: string[] }[] = [];
+    
+    if (mauGiao.length > 0) {
+      groups.push({ label: 'Mẫu Giáo', classes: mauGiao });
+    }
+    if (nhaTre.length > 0) {
+      groups.push({ label: 'Nhà Trẻ', classes: nhaTre });
+    }
+    
+    return groups;
+  }
+
+  // TrackBy for ngFor to preserve DOM
+  trackByGroupLabel(index: number, item: { label: string; classes: string[] }): string {
+    return item.label;
+  }
+
+  trackByClass(index: number, cls: string): string {
+    return cls;
   }
 
   getClassPriority(className: string): number {
@@ -408,12 +503,20 @@ export class TeacherAssignmentComponent {
     let result = this.students.filter(s => {
       const matchesSearch = s.fullName.toLowerCase().includes(this.studentSearchTerm) || 
                             s.code.toLowerCase().includes(this.studentSearchTerm);
-      const matchesClass = this.classFilter ? s.className.includes(this.classFilter) : true;
+      
+      // Filter by block first (e.g., 'Mầm' matches 'Mầm 1', 'Mầm 2')
+      let matchesBlock = true;
+      if (this.blockFilter) {
+        matchesBlock = s.className.startsWith(this.blockFilter);
+      }
+      
+      // Then filter by specific class (exact match)
+      const matchesClass = this.classFilter ? s.className === this.classFilter : true;
       
       const isUnassigned = !s.assignedTeacherIds || s.assignedTeacherIds.length === 0;
       const matchesUnassigned = this.showUnassignedOnly ? isUnassigned : true;
 
-      return matchesSearch && matchesClass && matchesUnassigned;
+      return matchesSearch && matchesBlock && matchesClass && matchesUnassigned;
     });
 
     // 2. Sort: Mầm -> Chồi -> Lá -> 6-18 -> 19-24 -> 25-36
