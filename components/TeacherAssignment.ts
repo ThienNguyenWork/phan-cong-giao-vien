@@ -145,8 +145,8 @@ import { Student, Teacher } from '../types';
                   [ngClass]="{'bg-blue-50': selectedStudentIds.has(student.id)}">
                 
                 <!-- Checkbox Column -->
-                <td class="px-4 py-3 cursor-pointer" (click)="toggleStudent(student.id)">
-                   <input type="checkbox" [checked]="selectedStudentIds.has(student.id)" (change)="toggleStudent(student.id)" class="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer">
+                <td class="px-4 py-3">
+                   <input type="checkbox" [checked]="selectedStudentIds.has(student.id)" (change)="toggleStudent(student.id)" (click)="$event.stopPropagation()" class="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer">
                 </td>
 
                 <!-- Info Column -->
